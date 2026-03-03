@@ -1,25 +1,59 @@
-name: CI
+name: CI + CD (Deploy to EC2)
 
 on:
   pull_request:
+    branches: ["main"]
   push:
-    branches: [ "main" ]
+    branches: ["main"]
+  workflow_dispatch: {}
 
 jobs:
-  test:
+  ci:
+    name: CI (tests)
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
 
       - name: Run tests
-        run: pytest
+        run: |
+          pytest -q
+
+  deploy:
+    name: Deploy to EC2
+    needs: ci
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps (EC2 venv)
+        run: |
+          cd /home/ec2-user/company-fastapi-demo
+          git pull origin main
+
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restart service
+        run: |
+          sudo systemctl daemon-reload
+          sudo systemctl restart fastapi-demo
+          sudo systemctl status fastapi-demo --no-pager
